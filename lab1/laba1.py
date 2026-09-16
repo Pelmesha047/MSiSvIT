@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Парсер и анализатор метрик Холстеда для кода на языке Perl.
+Графическое приложение (GUI) и CLI-анализатор метрик Холстеда для кода на языке Perl.
 Анализирует исходный код Perl и вычисляет:
   - 6 базовых метрик (η1, η2, N1, N2, f1j, f2i)
   - 3 главных метрики (η, N, V)
@@ -10,12 +10,21 @@
 """
 
 import sys
+import os
 import re
 import math
 from collections import Counter
 from typing import Dict, List, Tuple, Any
 
-# Настройка UTF-8 для корректного вывода в консоль (в т.ч. под Windows)
+# Подключение библиотеки GUI (Tkinter)
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox, scrolledtext
+    HAS_TKINTER = True
+except ImportError:
+    HAS_TKINTER = False
+
+# Настройка UTF-8 для консоли Windows
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -50,10 +59,7 @@ class PerlHalsteadAnalyzer:
         ]
 
     def tokenize(self, code: str) -> List[Tuple[str, str]]:
-        """
-        Токенизация Perl-кода на основе регулярных выражений.
-        Удаляет комментарии, сохраняя символ '#' внутри строковых литералов.
-        """
+        """Токенизация Perl-кода на основе регулярных выражений."""
         token_specification = [
             ('COMMENT',    r'#.*'),
             ('STRING',     r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|`(?:[^`\\]|\\.)*`|q[qwxr]?\s*\/[^\/]*\/|q[qwxr]?\s*\{[^{}]*\}|q[qwxr]?\s*\([^()]*\)'),
@@ -92,7 +98,6 @@ class PerlHalsteadAnalyzer:
         open_braces, close_braces = 0, 0
         open_brackets, close_brackets = 0, 0
 
-        # Определение составных управляющих операторов (например, do...until, if...else)
         keywords_sequence = [val for kind, val in raw_tokens if kind == 'WORD' and val in {'do', 'until', 'while', 'if', 'else', 'elsif'}]
         
         has_do = 'do' in keywords_sequence
@@ -130,7 +135,7 @@ class PerlHalsteadAnalyzer:
 
             if kind == 'WORD':
                 if val in compound_handled:
-                    pass  # Ранее учтено в составном операторе
+                    pass
                 elif val in self.word_operators:
                     if i + 1 < n_tokens and raw_tokens[i+1][1] == '(':
                         op_counts[f"{val}()"] += 1
@@ -162,7 +167,6 @@ class PerlHalsteadAnalyzer:
 
             i += 1
 
-        # Сведение скобок в операторы пар скобок
         if open_parens > 0 or close_parens > 0:
             op_counts['()'] = max(open_parens, close_parens)
         if open_braces > 0 or close_braces > 0:
@@ -170,28 +174,26 @@ class PerlHalsteadAnalyzer:
         if open_brackets > 0 or close_brackets > 0:
             op_counts['[]'] = max(open_brackets, close_brackets)
 
-        # 1. БАЗОВЫЕ МЕТРИКИ (6 базовых показателей)
-        eta1 = len(op_counts)       # η1 - словарь операторов (число уникальных операторов)
-        eta2 = len(opnd_counts)     # η2 - словарь операндов (число уникальных операндов)
-        N1 = sum(op_counts.values()) # N1 - общее число операторов
-        N2 = sum(opnd_counts.values()) # N2 - общее число операндов
-        # f1j - вхождения j-го оператора (op_counts)
-        # f2i - вхождения i-го операнда (opnd_counts)
+        # 1. БАЗОВЫЕ МЕТРИКИ
+        eta1 = len(op_counts)       # η1 - уникальные операторы
+        eta2 = len(opnd_counts)     # η2 - уникальные операнды
+        N1 = sum(op_counts.values()) # N1 - всего операторов
+        N2 = sum(opnd_counts.values()) # N2 - всего операндов
 
-        # 2. ГЛАВНЫЕ МЕТРИКИ (3 производных показателя)
+        # 2. ГЛАВНЫЕ МЕТРИКИ
         eta = eta1 + eta2           # η - словарь программы
         N = N1 + N2                 # N - длина программы
         V = N * math.log2(eta) if eta > 0 else 0  # V - объем программы (в битах)
 
-        # 3. ДОПОЛНИТЕЛЬНЫЕ РАСШИРЕННЫЕ МЕТРИКИ
-        N_hat = (eta1 * math.log2(eta1) if eta1 > 0 else 0) + (eta2 * math.log2(eta2) if eta2 > 0 else 0) # N^ - расчетная длина
+        # 3. ДОПОЛНИТЕЛЬНЫЕ МЕТРИКИ
+        N_hat = (eta1 * math.log2(eta1) if eta1 > 0 else 0) + (eta2 * math.log2(eta2) if eta2 > 0 else 0)
         eta2_star = eta2
-        V_star = (2 + eta2_star) * math.log2(2 + eta2_star) if (2 + eta2_star) > 0 else 0 # V* - потенциальный объем
-        L = (2 / eta1) * (eta2 / N2) if eta1 > 0 and N2 > 0 else 0 # L - уровень программы
-        D = 1 / L if L > 0 else 0   # D - сложность программы
-        E = D * V                    # E - трудоемкость (усилия на разработку)
-        T = E / 18                   # T - время разработки в секундах
-        B = V / 3000                 # B - прогнозируемое количество ошибок
+        V_star = (2 + eta2_star) * math.log2(2 + eta2_star) if (2 + eta2_star) > 0 else 0
+        L = (2 / eta1) * (eta2 / N2) if eta1 > 0 and N2 > 0 else 0
+        D = 1 / L if L > 0 else 0
+        E = D * V
+        T = E / 18
+        B = V / 3000
 
         return {
             'op_counts': op_counts,
@@ -213,13 +215,229 @@ class PerlHalsteadAnalyzer:
         }
 
 
-def print_results(results: Dict[str, Any]):
-    """Выводит результаты анализа в виде форматированных таблиц и метрик."""
+# ============================================================================
+# ГРАФИЧЕСКИЙ ИНТЕРФЕЙС (GUI на Tkinter)
+# ============================================================================
+
+class HalsteadGUIApp:
+    """Класс графического интерфейса с окном ввода и таблицами вывода результатов."""
+
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("Анализатор метрик Холстеда для кода Perl")
+        self.root.geometry("1150x820")
+        self.root.minsize(950, 680)
+        
+        self.analyzer = PerlHalsteadAnalyzer()
+        self._setup_style()
+        self._create_widgets()
+
+    def _setup_style(self):
+        style = ttk.Style()
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+            
+        style.configure("TLabel", font=("Segoe UI", 10))
+        style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=6)
+        style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"), foreground="#1a365d")
+        style.configure("Title.TLabel", font=("Segoe UI", 13, "bold"), foreground="#1a365d")
+        style.configure("MetricMain.TLabel", font=("Consolas", 11, "bold"), foreground="#2b6cb0")
+        style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("Treeview", font=("Consolas", 10), rowheight=24)
+
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 1. Верхняя панель: Заголовок и кнопки управления
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 8))
+
+        title_label = ttk.Label(header_frame, text="Расчёт базовых и производных метрик Холстеда (Perl)", style="Title.TLabel")
+        title_label.pack(side=tk.LEFT, padx=(0, 10))
+
+        btn_bar = ttk.Frame(header_frame)
+        btn_bar.pack(side=tk.RIGHT)
+
+        ttk.Button(btn_bar, text="📁 Открыть файл...", command=self._load_file).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="✨ Пример кода (Sin1)", command=self._insert_example).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="🗑 Очистить", command=self._clear_input).pack(side=tk.LEFT, padx=3)
+
+        # 2. Разделитель верхнего текстового поля и нижних таблиц
+        paned = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # 2.1 Верхняя секция: Текстовое поле для ввода кода
+        input_frame = ttk.LabelFrame(paned, text=" Исходный код Perl ", padding=5)
+        paned.add(input_frame, weight=1)
+
+        self.text_code = scrolledtext.ScrolledText(input_frame, wrap=tk.NONE, font=("Consolas", 11), undo=True)
+        self.text_code.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+
+        btn_run = tk.Button(
+            input_frame,
+            text="▶ РАССЧИТАТЬ МЕТРИКИ ХОЛСТЕДА",
+            bg="#2b6cb0",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
+            activebackground="#2c5282",
+            activeforeground="white",
+            cursor="hand2",
+            relief=tk.RAISED,
+            bd=2,
+            command=self._analyze_code
+        )
+        btn_run.pack(fill=tk.X, pady=(5, 0))
+
+        # 2.2 Нижняя секция: Две параллельные таблицы и выводимые метрики
+        results_frame = ttk.LabelFrame(paned, text=" Результаты расчета (Таблицы Холстеда) ", padding=5)
+        paned.add(results_frame, weight=2)
+
+        tables_paned = ttk.PanedWindow(results_frame, orient=tk.HORIZONTAL)
+        tables_paned.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+
+        # Левая таблица: Операторы
+        op_frame = ttk.Frame(tables_paned)
+        tables_paned.add(op_frame, weight=1)
+
+        ttk.Label(op_frame, text="Таблица 1. Операторы программы", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 2))
+        
+        self.tree_op = ttk.Treeview(op_frame, columns=("j", "operator", "f1j"), show="headings", height=8)
+        self.tree_op.heading("j", text="j")
+        self.tree_op.heading("operator", text="Оператор")
+        self.tree_op.heading("f1j", text="f1j (частота)")
+        self.tree_op.column("j", width=45, anchor=tk.CENTER)
+        self.tree_op.column("operator", width=190, anchor=tk.W)
+        self.tree_op.column("f1j", width=110, anchor=tk.CENTER)
+        
+        op_scroll = ttk.Scrollbar(op_frame, orient=tk.VERTICAL, command=self.tree_op.yview)
+        self.tree_op.configure(yscrollcommand=op_scroll.set)
+        
+        self.tree_op.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        op_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Правая таблица: Операнды
+        opnd_frame = ttk.Frame(tables_paned)
+        tables_paned.add(opnd_frame, weight=1)
+
+        ttk.Label(opnd_frame, text="Таблица 2. Операнды программы", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 2))
+        
+        self.tree_opnd = ttk.Treeview(opnd_frame, columns=("i", "operand", "f2i"), show="headings", height=8)
+        self.tree_opnd.heading("i", text="i")
+        self.tree_opnd.heading("operand", text="Операнд")
+        self.tree_opnd.heading("f2i", text="f2i (частота)")
+        self.tree_opnd.column("i", width=45, anchor=tk.CENTER)
+        self.tree_opnd.column("operand", width=190, anchor=tk.W)
+        self.tree_opnd.column("f2i", width=110, anchor=tk.CENTER)
+        
+        opnd_scroll = ttk.Scrollbar(opnd_frame, orient=tk.VERTICAL, command=self.tree_opnd.yview)
+        self.tree_opnd.configure(yscrollcommand=opnd_scroll.set)
+        
+        self.tree_opnd.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        opnd_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Панель вывода итоговых метрик
+        summary_frame = ttk.Frame(results_frame)
+        summary_frame.pack(fill=tk.X, pady=5)
+
+        self.lbl_base_sum = ttk.Label(summary_frame, text="η1 = 0 | N1 = 0                    η2 = 0 | N2 = 0", font=("Consolas", 11, "bold"))
+        self.lbl_base_sum.pack(fill=tk.X)
+
+        self.lbl_main_metrics = ttk.Label(summary_frame, text="Словарь программы η = 0  |  Длина N = 0  |  Объём V = 0.00 бит", style="MetricMain.TLabel")
+        self.lbl_main_metrics.pack(fill=tk.X, pady=(2, 2))
+
+        self.lbl_ext_metrics = ttk.Label(
+            summary_frame,
+            font=("Segoe UI", 9),
+            text="N^ = 0 | V* = 0 бит | L = 0 | D = 0 | E = 0 | T = 0 сек | B = 0"
+        )
+        self.lbl_ext_metrics.pack(fill=tk.X)
+
+        # Заполнение при старте примером Sin1
+        self._insert_example()
+
+    def _insert_example(self):
+        example_code = '''# Пример вычисления sin(x) через разложение в ряд (из методички)
+my $eps = 0.0001;
+my $x = 0.5;
+my $y = $x;
+my $n = 2;
+my $vs = $x;
+
+do {
+    $vs = -$vs * $x * $x / (2 * $n - 1) / (2 * $n - 2);
+    $n = $n + 1;
+    $y = $y + $vs;
+} until (abs($vs) < $eps);
+
+print($x, $y, $eps);
+'''
+        self.text_code.delete("1.0", tk.END)
+        self.text_code.insert(tk.END, example_code)
+        self._analyze_code()
+
+    def _clear_input(self):
+        self.text_code.delete("1.0", tk.END)
+
+    def _load_file(self):
+        filename = filedialog.askopenfilename(filetypes=[("Perl Files", "*.pl *.pm"), ("All Files", "*.*")])
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                self.text_code.delete("1.0", tk.END)
+                self.text_code.insert(tk.END, content)
+                self._analyze_code()
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{e}")
+
+    def _analyze_code(self):
+        code = self.text_code.get("1.0", tk.END)
+        if not code.strip():
+            messagebox.showwarning("Предупреждение", "Введите или вставьте код Perl для анализа!")
+            return
+
+        res = self.analyzer.analyze(code)
+
+        # Очистка прошлых данных из таблиц
+        for item in self.tree_op.get_children():
+            self.tree_op.delete(item)
+        for item in self.tree_opnd.get_children():
+            self.tree_opnd.delete(item)
+
+        # Заполнение Таблицы 1 (Операторы)
+        sorted_ops = sorted(res['op_counts'].items(), key=lambda x: (-x[1], x[0]))
+        for idx, (op, count) in enumerate(sorted_ops, 1):
+            self.tree_op.insert("", tk.END, values=(idx, op, count))
+
+        # Заполнение Таблицы 2 (Операнды)
+        sorted_opnds = sorted(res['opnd_counts'].items(), key=lambda x: (-x[1], x[0]))
+        for idx, (opnd, count) in enumerate(sorted_opnds, 1):
+            self.tree_opnd.insert("", tk.END, values=(idx, opnd, count))
+
+        # Обновление текста итоговых метрик
+        self.lbl_base_sum.config(
+            text=f"η1 (операторы) = {res['eta1']} | N1 = {res['N1']}              η2 (операнды) = {res['eta2']} | N2 = {res['N2']}"
+        )
+        self.lbl_main_metrics.config(
+            text=f"Словарь программы η = {res['eta']}  |  Длина N = {res['N']}  |  Объём V = {res['V']:.2f} бит"
+        )
+        self.lbl_ext_metrics.config(
+            text=f"Расчетная длина N^ = {res['N_hat']:.2f}  |  Потенциальный объём V* = {res['V_star']:.2f} бит  |  Уровень L = {res['L']:.4f}\n"
+                 f"Сложность D = {res['D']:.2f}  |  Усилия E = {res['E']:.2f}  |  Время T = {res['T']:.2f} сек ({res['T']/60:.2f} мин)  |  Ошибки B = {res['B']:.4f}"
+        )
+
+
+# ============================================================================
+# ВЫВОД В КОНСОЛЬ (CLI РЕЖИМ)
+# ============================================================================
+
+def print_cli_results(results: Dict[str, Any]):
+    """Выводит результаты анализа в консоль."""
     print("\n" + "=" * 72)
     print("           РАСЧЁТ МЕТРИК ХОЛСТЕДА ДЛЯ PERL-ПРОГРАММЫ")
     print("=" * 72)
 
-    # Таблица 1: Операторы
     print("\nТаблица 1. Операторы программы")
     print("-" * 72)
     print(f"{'j':<6} {'Оператор':<30} {'f1j (частота)':<15}")
@@ -231,7 +449,6 @@ def print_results(results: Dict[str, Any]):
     print(f"η1 (словарь операторов) = {results['eta1']:<10} N1 (всего операторов) = {results['N1']}")
     print("=" * 72)
 
-    # Таблица 2: Операнды
     print("\nТаблица 2. Операнды программы")
     print("-" * 72)
     print(f"{'i':<6} {'Операнд':<30} {'f2i (частота)':<15}")
@@ -244,7 +461,6 @@ def print_results(results: Dict[str, Any]):
     print(f"η2 (словарь операндов)  = {results['eta2']:<10} N2 (всего операндов)  = {results['N2']}")
     print("=" * 72)
 
-    # Раздел 1: 6 Базовых метрик
     print("\n" + "─" * 45)
     print("  1. БАЗОВЫЕ МЕТРИКИ ХОЛСТЕДА (6 показателей)")
     print("─" * 45)
@@ -255,7 +471,6 @@ def print_results(results: Dict[str, Any]):
     print(f"  5. f1j (Вхождения операторов j)         = детально в Таблице 1")
     print(f"  6. f2i (Вхождения операндов i)          = детально в Таблице 2")
 
-    # Раздел 2: 3 Главные метрики
     print("\n" + "─" * 45)
     print("  2. ГЛАВНЫЕ МЕТРИКИ ХОЛСТЕДА (3 показателя)")
     print("─" * 45)
@@ -263,7 +478,6 @@ def print_results(results: Dict[str, Any]):
     print(f"  2. N = N1 + N2 (Длина программы)        = {results['N']}")
     print(f"  3. V = N * log2(η) (Объём программы)    = {results['V']:.2f} бит")
 
-    # Раздел 3: Дополнительные расширенные метрики
     print("\n" + "─" * 45)
     print("  3. ДОПОЛНИТЕЛЬНЫЕ И РАСШИРЕННЫЕ МЕТРИКИ")
     print("─" * 45)
@@ -278,64 +492,36 @@ def print_results(results: Dict[str, Any]):
 
 
 def main():
-    """Главная точка входа в программу."""
-    code = ""
-    
-    # 1. Передача пути к файлу через аргумент командной строки
-    if len(sys.argv) > 1:
-        filepath = sys.argv[1]
-        try:
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                code = f.read()
-            print(f"[+] Успешно прочитан файл: {filepath}")
-        except Exception as e:
-            print(f"[-] Ошибка при чтении файла {filepath}: {e}")
-            sys.exit(1)
-            
-    # 2. Передача кода через конвейер stdin (pipe / redirect)
-    elif not sys.stdin.isatty():
-        code = sys.stdin.read()
-        
-    # 3. Интерактивный режим ввода через консоль
+    """Точка входа: запускает GUI при отсутствии аргументов либо CLI при их наличии."""
+    # 1. Если аргументы переданы через консоль или перенаправление — работает в консольном режиме
+    if len(sys.argv) > 1 or not sys.stdin.isatty():
+        code = ""
+        if len(sys.argv) > 1:
+            filepath = sys.argv[1]
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    code = f.read()
+                print(f"[+] Прочитан файл: {filepath}")
+            except Exception as e:
+                print(f"[-] Ошибка чтения файла {filepath}: {e}")
+                sys.exit(1)
+        else:
+            code = sys.stdin.read()
+
+        if code.strip():
+            analyzer = PerlHalsteadAnalyzer()
+            results = analyzer.analyze(code)
+            print_cli_results(results)
+        else:
+            print("ОШИБКА: Код не передан!")
+    # 2. Иначе открываем графический интерфейс GUI
     else:
-        print("=" * 72)
-        print("        АНАЛИЗАТОР МЕТРИК ХОЛСТЕДА ДЛЯ КОДА PERL")
-        print("=" * 72)
-        print("\nИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ:")
-        print("1. Запуск с файлом:      python laba1.py <путь_к_файлу.pl>")
-        print("2. Или введите код Perl прямо в консоль.")
-        print("3. Завершите ввод словом 'END' на отдельной строке или Ctrl+Z (Ctrl+D).")
-        print("-" * 72)
-        print("ВВЕДИТЕ КОД PERL (для завершения наберите END):")
-        print("-" * 72)
-
-        lines = []
-        try:
-            while True:
-                line = input()
-                if line.strip().upper() == 'END':
-                    break
-                lines.append(line)
-        except EOFError:
-            pass
-        except KeyboardInterrupt:
-            print("\nВвод прерван пользователем.")
-            return
-
-        code = '\n'.join(lines)
-
-    if not code.strip():
-        print("ОШИБКА: Исходный код Perl не введён!")
-        return
-
-    analyzer = PerlHalsteadAnalyzer()
-    try:
-        results = analyzer.analyze(code)
-        print_results(results)
-    except Exception as e:
-        print(f"ОШИБКА при анализе кода: {e}")
-        import traceback
-        traceback.print_exc()
+        if HAS_TKINTER:
+            root = tk.Tk()
+            app = HalsteadGUIApp(root)
+            root.mainloop()
+        else:
+            print("ОШИБКА: Модуль tkinter недоступен в данной системе!")
 
 
 if __name__ == "__main__":
