@@ -375,12 +375,12 @@ class HalsteadGUIApp:
         self.lbl_main_metrics = ttk.Label(summary_frame, text="Словарь программы η = 0  |  Длина N = 0  |  Объём V = 0.00 бит", style="MetricMain.TLabel")
         self.lbl_main_metrics.pack(fill=tk.X, pady=(2, 2))
 
-        self.lbl_ext_metrics = ttk.Label(
-            summary_frame,
-            font=("Segoe UI", 9),
-            text="N^ = 0 | V* = 0 бит | L = 0 | D = 0 | E = 0 | T = 0 сек | B = 0"
-        )
-        self.lbl_ext_metrics.pack(fill=tk.X)
+        # self.lbl_ext_metrics = ttk.Label(
+        #     summary_frame,
+        #     font=("Segoe UI", 9),
+        #     text="N^ = 0 | V* = 0 бит | L = 0 | D = 0 | E = 0 | T = 0 сек | B = 0"
+        # )
+        # self.lbl_ext_metrics.pack(fill=tk.X)
 
         # Заполнение при старте примером Sin1
         self._insert_example()
@@ -451,10 +451,10 @@ print($x, $y, $eps);
         self.lbl_main_metrics.config(
             text=f"Словарь программы η = {res['eta']}  |  Длина N = {res['N']}  |  Объём V = {res['V']:.2f} бит"
         )
-        self.lbl_ext_metrics.config(
-            text=f"Расчетная длина N^ = {res['N_hat']:.2f}  |  Потенциальный объём V* = {res['V_star']:.2f} бит  |  Уровень L = {res['L']:.4f}\n"
-                 f"Сложность D = {res['D']:.2f}  |  Усилия E = {res['E']:.2f}  |  Время T = {res['T']:.2f} сек ({res['T']/60:.2f} мин)  |  Ошибки B = {res['B']:.4f}"
-        )
+        # self.lbl_ext_metrics.config(
+        #     text=f"Расчетная длина N^ = {res['N_hat']:.2f}  |  Потенциальный объём V* = {res['V_star']:.2f} бит  |  Уровень L = {res['L']:.4f}\n"
+        #          f"Сложность D = {res['D']:.2f}  |  Усилия E = {res['E']:.2f}  |  Время T = {res['T']:.2f} сек ({res['T']/60:.2f} мин)  |  Ошибки B = {res['B']:.4f}"
+        # )
 
 
 # ============================================================================
