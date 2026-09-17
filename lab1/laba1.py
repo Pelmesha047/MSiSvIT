@@ -49,6 +49,12 @@ class PerlHalsteadAnalyzer:
             'substr', 'abs', 'sqrt', 'int', 'rand', 'time', 'exit'
         }
 
+        # Ключевые слова управляющих конструкций
+        self.control_keywords = {
+            'if', 'unless', 'elsif', 'else', 'for', 'foreach', 'while', 'until',
+            'do', 'sub', 'given', 'when', 'my', 'our', 'local', 'state'
+        }
+
         # Символьные операторы и знаки операций Perl
         self.symbol_operators = [
             '**=', '<<=', '>>=', '||=', '&&=', '//=', '<=>', '...', '->', '=>',
@@ -94,10 +100,7 @@ class PerlHalsteadAnalyzer:
         op_counts = Counter()
         opnd_counts = Counter()
 
-        open_parens, close_parens = 0, 0
-        open_braces, close_braces = 0, 0
-        open_brackets, close_brackets = 0, 0
-
+        # Составные управляющие операторы (например, do...until, if...else)
         keywords_sequence = [val for kind, val in raw_tokens if kind == 'WORD' and val in {'do', 'until', 'while', 'if', 'else', 'elsif'}]
         
         has_do = 'do' in keywords_sequence
@@ -127,6 +130,13 @@ class PerlHalsteadAnalyzer:
             compound_handled.add('if')
             compound_handled.add('else')
 
+        # Стек для учета скобок: True = скобка относится к вызову функции/конструкции, False = скобка приоритета вычислений
+        paren_stack = []
+        standalone_parens_count = 0
+
+        open_braces, close_braces = 0, 0
+        open_brackets, close_brackets = 0, 0
+
         i = 0
         n_tokens = len(raw_tokens)
 
@@ -134,27 +144,44 @@ class PerlHalsteadAnalyzer:
             kind, val = raw_tokens[i]
 
             if kind == 'WORD':
+                is_followed_by_paren = (i + 1 < n_tokens and raw_tokens[i+1][1] == '(')
+
                 if val in compound_handled:
                     pass
                 elif val in self.word_operators:
-                    if i + 1 < n_tokens and raw_tokens[i+1][1] == '(':
-                        op_counts[f"{val}()"] += 1
+                    if is_followed_by_paren:
+                        if val in self.control_keywords:
+                            op_counts[val] += 1
+                        else:
+                            op_counts[f"{val}()"] += 1
                     else:
                         op_counts[val] += 1
                 else:
-                    if i + 1 < n_tokens and raw_tokens[i+1][1] == '(':
+                    if is_followed_by_paren:
                         op_counts[f"{val}()"] += 1
                     else:
                         opnd_counts[val] += 1
+
             elif kind == 'SYM_OP':
                 op_counts[val] += 1
+
             elif kind == 'BRACKET':
-                if val == '(': open_parens += 1
-                elif val == ')': close_parens += 1
+                if val == '(':
+                    # Если перед скобкой идет WORD (имя функции или ключевое слово), скобка синтаксическая
+                    prev_kind, prev_val = raw_tokens[i-1] if i > 0 else (None, None)
+                    if prev_kind == 'WORD':
+                        paren_stack.append(True)   # Скобка относится к вызову функции
+                    else:
+                        paren_stack.append(False)  # Скобка приоритета вычислений
+                        standalone_parens_count += 1
+                elif val == ')':
+                    if paren_stack:
+                        paren_stack.pop()
                 elif val == '{': open_braces += 1
                 elif val == '}': close_braces += 1
                 elif val == '[': open_brackets += 1
                 elif val == ']': close_brackets += 1
+
             elif kind in ('STRING', 'FLOAT', 'HEX_BIN', 'INT'):
                 opnd_counts[val] += 1
             elif kind == 'VARIABLE':
@@ -167,8 +194,10 @@ class PerlHalsteadAnalyzer:
 
             i += 1
 
-        if open_parens > 0 or close_parens > 0:
-            op_counts['()'] = max(open_parens, close_parens)
+        # Скобки приоритета вычислений () учитываются как отдельный оператор ()
+        if standalone_parens_count > 0:
+            op_counts['()'] = standalone_parens_count
+
         if open_braces > 0 or close_braces > 0:
             op_counts['{}'] = max(open_braces, close_braces)
         if open_brackets > 0 or close_brackets > 0:
@@ -357,7 +386,7 @@ class HalsteadGUIApp:
         self._insert_example()
 
     def _insert_example(self):
-        example_code = '''# Пример вычисления sin(x) через разложение в ряд (из методички)
+        example_code = '''# Пример вычисления sin(x) через разложение в ряд
 my $eps = 0.0001;
 my $x = 0.5;
 my $y = $x;
@@ -493,7 +522,6 @@ def print_cli_results(results: Dict[str, Any]):
 
 def main():
     """Точка входа: запускает GUI при отсутствии аргументов либо CLI при их наличии."""
-    # 1. Если аргументы переданы через консоль или перенаправление — работает в консольном режиме
     if len(sys.argv) > 1 or not sys.stdin.isatty():
         code = ""
         if len(sys.argv) > 1:
@@ -514,7 +542,6 @@ def main():
             print_cli_results(results)
         else:
             print("ОШИБКА: Код не передан!")
-    # 2. Иначе открываем графический интерфейс GUI
     else:
         if HAS_TKINTER:
             root = tk.Tk()
