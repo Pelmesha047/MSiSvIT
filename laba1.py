@@ -218,11 +218,11 @@ class PerlHalsteadAnalyzer:
         N_hat = (eta1 * math.log2(eta1) if eta1 > 0 else 0) + (eta2 * math.log2(eta2) if eta2 > 0 else 0)
         eta2_star = eta2
         V_star = (2 + eta2_star) * math.log2(2 + eta2_star) if (2 + eta2_star) > 0 else 0
-        # L = (2 / eta1) * (eta2 / N2) if eta1 > 0 and N2 > 0 else 0
-        # D = 1 / L if L > 0 else 0
-        # E = D * V
-        # T = E / 18
-        # B = V / 3000
+        L = (2 / eta1) * (eta2 / N2) if eta1 > 0 and N2 > 0 else 0
+        D = 1 / L if L > 0 else 0
+        E = D * V
+        T = E / 18
+        B = V / 3000
 
         return {
             'op_counts': op_counts,
@@ -236,11 +236,11 @@ class PerlHalsteadAnalyzer:
             'N_hat': N_hat,
             'V': V,
             'V_star': V_star,
-            # 'L': L,
-            # 'D': D,
-            # 'E': E,
-            # 'T': T,
-            # 'B': B
+            'L': L,
+            'D': D,
+            'E': E,
+            'T': T,
+            'B': B
         }
 
 
@@ -365,10 +365,6 @@ class HalsteadGUIApp:
         self.tree_opnd.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         opnd_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Настройка копирования в буфер обмена по Ctrl+C и контекстного меню
-        self._setup_treeview_copy(self.tree_op)
-        self._setup_treeview_copy(self.tree_opnd)
-
         # Панель вывода итоговых метрик
         summary_frame = ttk.Frame(results_frame)
         summary_frame.pack(fill=tk.X, pady=5)
@@ -379,18 +375,18 @@ class HalsteadGUIApp:
         self.lbl_main_metrics = ttk.Label(summary_frame, text="Словарь программы η = 0  |  Длина N = 0  |  Объём V = 0.00 бит", style="MetricMain.TLabel")
         self.lbl_main_metrics.pack(fill=tk.X, pady=(2, 2))
 
-        # self.lbl_ext_metrics = ttk.Label(
-        #     summary_frame,
-        #     font=("Segoe UI", 9),
-        #     text="N^ = 0 | V* = 0 бит | L = 0 | D = 0 | E = 0 | T = 0 сек | B = 0"
-        # )
-        # self.lbl_ext_metrics.pack(fill=tk.X)
+        self.lbl_ext_metrics = ttk.Label(
+            summary_frame,
+            font=("Segoe UI", 9),
+            text="N^ = 0 | V* = 0 бит | L = 0 | D = 0 | E = 0 | T = 0 сек | B = 0"
+        )
+        self.lbl_ext_metrics.pack(fill=tk.X)
 
         # Заполнение при старте примером Sin1
         self._insert_example()
 
     def _insert_example(self):
-        example_code = '''# Пример вычисления sin(x) через разложение в ряд
+        example_code = '''# Пример вычисления sin(x) через разложение в ряд (из методички)
 my $eps = 0.0001;
 my $x = 0.5;
 my $y = $x;
@@ -455,73 +451,10 @@ print($x, $y, $eps);
         self.lbl_main_metrics.config(
             text=f"Словарь программы η = {res['eta']}  |  Длина N = {res['N']}  |  Объём V = {res['V']:.2f} бит"
         )
-        # self.lbl_ext_metrics.config(
-        #     text=f"Расчетная длина N^ = {res['N_hat']:.2f}  |  Потенциальный объём V* = {res['V_star']:.2f} бит  |  Уровень L = {res['L']:.4f}\n"
-        #          f"Сложность D = {res['D']:.2f}  |  Усилия E = {res['E']:.2f}  |  Время T = {res['T']:.2f} сек ({res['T']/60:.2f} мин)  |  Ошибки B = {res['B']:.4f}"
-        # )
-
-    def _setup_treeview_copy(self, tree: ttk.Treeview):
-        """Настраивает горячие клавиши (Ctrl+C, Ctrl+A) и контекстное меню по правому клику для таблицы."""
-        tree.bind("<Control-c>", lambda e: self._copy_treeview_to_clipboard(tree))
-        tree.bind("<Control-C>", lambda e: self._copy_treeview_to_clipboard(tree))
-        tree.bind("<Control-Insert>", lambda e: self._copy_treeview_to_clipboard(tree))
-
-        def select_all(event):
-            tree.selection_set(tree.get_children())
-            return "break"
-
-        tree.bind("<Control-a>", select_all)
-        tree.bind("<Control-A>", select_all)
-
-        # Контекстное меню по правому клику мыши
-        menu = tk.Menu(tree, tearoff=0)
-        menu.add_command(
-            label="📋 Скопировать выделенное (Ctrl+C)",
-            command=lambda: self._copy_treeview_to_clipboard(tree, only_selected=True)
+        self.lbl_ext_metrics.config(
+            text=f"Расчетная длина N^ = {res['N_hat']:.2f}  |  Потенциальный объём V* = {res['V_star']:.2f} бит  |  Уровень L = {res['L']:.4f}\n"
+                 f"Сложность D = {res['D']:.2f}  |  Усилия E = {res['E']:.2f}  |  Время T = {res['T']:.2f} сек ({res['T']/60:.2f} мин)  |  Ошибки B = {res['B']:.4f}"
         )
-        menu.add_command(
-            label="📊 Скопировать всю таблицу",
-            command=lambda: self._copy_treeview_to_clipboard(tree, only_selected=False)
-        )
-
-        def show_context_menu(event):
-            item = tree.identify_row(event.y)
-            if item and item not in tree.selection():
-                tree.selection_set(item)
-            menu.post(event.x_root, event.y_root)
-
-        tree.bind("<Button-3>", show_context_menu)
-        tree.bind("<Button-2>", show_context_menu)
-
-    def _copy_treeview_to_clipboard(self, tree: ttk.Treeview, only_selected: bool = None, event=None):
-        """Копирует выделенные или все строки таблицы в буфер обмена в формате табличного текста (TSV)."""
-        if only_selected is True:
-            items = tree.selection()
-        elif only_selected is False:
-            items = tree.get_children()
-        else:
-            items = tree.selection()
-            if not items:
-                items = tree.get_children()
-
-        if not items:
-            return "break"
-
-        columns = tree["columns"]
-        headers = [tree.heading(col)["text"] for col in columns]
-
-        rows = ["\t".join(headers)]
-        for item_id in items:
-            values = tree.item(item_id, "values")
-            rows.append("\t".join(str(v) for v in values))
-
-        text_data = "\n".join(rows)
-
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text_data)
-        self.root.update()
-
-        return "break"
 
 
 # ============================================================================
